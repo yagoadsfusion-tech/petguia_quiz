@@ -1,36 +1,72 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PetGuia Quiz Web
 
-## Getting Started
+Versão web do quiz/onboarding do app PetGuia, construída com Next.js, TypeScript, Tailwind CSS e Zustand.
 
-First, run the development server:
+## Stack
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- **Framework:** Next.js 15 (App Router)
+- **Linguagem:** TypeScript
+- **Estilização:** Tailwind CSS v4
+- **Estado Global:** Zustand (com persistência)
+- **Ícones:** Lucide React
+- **Fontes:** BB Anonym Pro (local) e Montserrat (Google Fonts)
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Estrutura do Projeto
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `/app`: Páginas e layout (App Router)
+- `/components`: Componentes React
+  - `/quiz`: Componentes específicos do quiz
+    - `/steps`: Componentes para cada etapa do fluxo
+- `/store`: Gerenciamento de estado com Zustand (`quizStore.ts`)
+- `/types`: Definições de tipos TypeScript (`quiz.ts`)
+- `/constants`: Dados estáticos (`quizData.ts`, `breeds.ts`)
+- `/lib`: Utilitários (`utils.ts`, `slugify.ts`, `imageHelpers.ts`)
+- `/public`: Assets estáticos (imagens, fontes)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Fluxo Implementado
 
-## Learn More
+Atualmente, o fluxo "Behavior" está completamente implementado, seguindo a ordem:
 
-To learn more about Next.js, take a look at the following resources:
+1. Carousel Intro
+2. Intention
+3. Gender
+4. Name
+5. Age
+6. Breed
+7. Social Proof (Interstitial)
+8. Health
+9. Activity
+10. Commands
+11. Identification (Slider)
+12. Intermediate (Interstitial)
+13. Problems (+ Priority Modal)
+14. Identification Problem (Slider)
+15. Context
+16. Impact
+17. Specific Situation
+18. Path A/B
+19. Progress Screen (Interstitial)
+20. Time
+21. Preparation (Loading)
+22. Result
+23. Paywall (Placeholder)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Como Rodar
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Instale as dependências:
+   ```bash
+   npm install
+   ```
 
-## Deploy on Vercel
+2. Inicie o servidor de desenvolvimento:
+   ```bash
+   npm run dev
+   ```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+3. Acesse `http://localhost:3000` (redireciona automaticamente para `/quiz`).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Notas de Desenvolvimento
+
+- O estado do quiz é persistido no `localStorage`.
+- As imagens são carregadas dinamicamente com base na raça e nível de atividade.
+- O design system segue fielmente as especificações do app mobile.
