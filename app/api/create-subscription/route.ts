@@ -32,11 +32,18 @@ export async function POST(req: Request) {
     }
 
     // 2. Create subscription with correct expansion for confirmation_secret
+    // NOTE: payment_method_types is intentionally omitted here so Stripe uses
+    // automatic payment methods — this is required for Apple Pay / Google Pay
+    // (ExpressCheckoutElement) to appear. Restricting to ['card'] would prevent
+    // wallet payment methods from being offered even though Apple Pay generates
+    // a card token under the hood.
     const subscription = await stripe.subscriptions.create({
       customer: customerId,
       items: [{ price: priceId }],
       payment_behavior: 'default_incomplete',
-      payment_settings: { save_default_payment_method: 'on_subscription' },
+      payment_settings: {
+        save_default_payment_method: 'on_subscription',
+      },
       expand: ['latest_invoice.confirmation_secret'],
     });
 

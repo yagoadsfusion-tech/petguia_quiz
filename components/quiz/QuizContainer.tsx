@@ -31,6 +31,55 @@ import { DailyChallengeStep } from './steps/DailyChallengeStep';
 import { ExploratoryStep } from './steps/ExploratoryStep';
 import { FocusStep } from './steps/FocusStep';
 import { useEffect, useState } from 'react';
+import { track } from '@/lib/mixpanelClient';
+
+const STEP_EVENT_NAMES: Record<string, string> = {
+  carousel:                  'intro',
+  intention:                 'intention',
+  gender:                    'genero',
+  name:                      'nome',
+  age:                       'idade',
+  breed:                     'raca',
+  social_proof:              'prova_social',
+  health:                    'saude',
+  activity:                  'atividade',
+  intermediate:              'intermediario',
+  time:                      'tempo',
+  preparation:               'preparacao',
+  result:                    'resultado',
+  // behavior
+  commands:                  'comandos',
+  identification_commands:   'identificacao_comandos',
+  problems:                  'problemas',
+  identification_problem:    'identificacao_problema',
+  context:                   'contexto',
+  impact:                    'impacto',
+  specific_situation_1:      'situacao_especifica',
+  path_ab_1:                 'path_ab',
+  progress_1:                'progresso',
+  // commands
+  blockage:                  'bloqueio',
+  behavior_commands:         'comandos_comportamento',
+  identification_light:      'identificacao_leve',
+  specific_situation_2:      'situacao_especifica',
+  path_ab_2:                 'path_ab',
+  progress_2:                'progresso',
+  // puppy
+  puppy_goal:                'objetivo_filhote',
+  prevention:                'prevencao',
+  daily_challenge:           'desafio_diario',
+  identification_puppy:      'identificacao_filhote',
+  specific_situation_3:      'situacao_especifica',
+  path_ab_3:                 'path_ab',
+  progress_3:                'progresso',
+  // general
+  exploratory:               'exploratorio',
+  focus:                     'foco',
+  identification_general:    'identificacao_geral',
+  specific_situation_4:      'situacao_especifica',
+  path_ab_4:                 'path_ab',
+  progress_4:                'progresso',
+};
 
 const stepComponents: Record<string, React.ComponentType> = {
   carousel: IntroStep,
@@ -89,12 +138,6 @@ export const QuizContainer = () => {
   const { currentStep, flow } = useQuizStore();
   const [isClient, setIsClient] = useState(false);
 
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
-
-  if (!isClient) return null;
-
   const behaviorSteps = [
     'carousel', 'intention', 'gender', 'name', 'age', 'breed', 'social_proof', 
     'health', 'activity', 'commands', 'identification_commands', 'intermediate', 
@@ -129,6 +172,20 @@ export const QuizContainer = () => {
   if (flow === 'general') currentFlowSteps = generalSteps;
 
   const stepId = currentFlowSteps[currentStep - 1] || 'paywall';
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isClient || stepId === 'paywall' || !flow) return;
+    const eventName = STEP_EVENT_NAMES[stepId];
+    if (!eventName) return;
+    track(`${flow}_${eventName}`);
+  }, [isClient, stepId, flow]);
+
+  if (!isClient) return null;
+
   const Component = stepComponents[stepId] || PaywallScreen;
   
   // Hide progress bar on interstitials and special screens

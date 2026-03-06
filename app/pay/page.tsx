@@ -1,15 +1,31 @@
 'use client';
 
+declare global {
+  interface Window {
+    fbq: (...args: unknown[]) => void;
+  }
+}
+
 import { Suspense, useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
-import Link from 'next/link';
-import { ChevronLeft, Check, Users, Shield, Loader2, ChevronDown, ChevronUp, Lock, ClipboardList } from 'lucide-react';
-import { FaApplePay } from 'react-icons/fa';
+import { ChevronLeft, Check, Users, Shield, Loader2, ChevronDown, ChevronUp, Lock, ClipboardList, X } from 'lucide-react';
+import { FaApplePay, FaGooglePay } from 'react-icons/fa';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements, ExpressCheckoutElement } from '@stripe/react-stripe-js';
 import { STRIPE_PRICES, STRIPE_PRICES_SEMANAL } from '@/constants/stripePrices';
 import { getVariantePay } from '@/lib/abTest';
+import { track } from '@/lib/mixpanelClient';
+import { useQuizStore } from '@/store/quizStore';
+
+const PLAN_NAME_MAP: Record<string, string> = {
+  annual:     'anual',
+  semiannual: 'semestral',
+  monthly:    'mensal',
+  week1:      '7_dias',
+  week4:      '4_semanas',
+  week12:     '12_semanas',
+};
 
 // --- Stripe Setup ---
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
@@ -153,48 +169,60 @@ const fallbackSubtitle = `O PetGuia vai ajudar a resolver problemas de comportam
 
 const PaymentForm = ({ 
   onBack,
+  onExit,
   selectedPlan,
   subscriptionId,
   userEmail,
   petName,
   equivalentLabel = '/mês',
+  planId,
+  priceId,
+  variante,
+  flow,
 }: { 
-  onBack: () => void,
+  onBack?: () => void,
+  onExit?: () => void,
   selectedPlan: Plan,
   subscriptionId: string,
   userEmail: string,
   petName: string,
   equivalentLabel?: string,
+  planId: string,
+  priceId: string,
+  variante: 'A' | 'B',
+  flow: string,
 }) => {
   const stripe = useStripe();
   const elements = useElements();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [formData, setFormData] = useState({ email: userEmail });
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'apple_pay'>('apple_pay');
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'apple_pay' | 'google_pay' | 'link'>('card');
+  const [isIOS, setIsIOS] = useState(false);
+  const [isAndroid, setIsAndroid] = useState(false);
+  const [expressAvailable, setExpressAvailable] = useState<boolean | null>(null);
 
-  const notifyRevenueCat = async (email: string) => {
-    try {
-      const res = await fetch('https://api.revenuecat.com/v1/receipts', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_REVENUECAT_API_KEY}`,
-          'Content-Type': 'application/json',
-          'X-Platform': 'stripe',
-        },
-        body: JSON.stringify({
-          app_user_id: email,
-          fetch_token: subscriptionId,
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.text();
-        console.error('[RevenueCat] Falha ao registrar assinatura:', res.status, body);
-      }
-    } catch (err) {
-      console.error('[RevenueCat] Erro ao chamar API:', err);
-    }
-  };
+  useEffect(() => {
+    const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const android = /Android/.test(navigator.userAgent);
+    setIsIOS(ios);
+    setIsAndroid(android);
+    // No desktop, pré-seleciona 'link' para que o ExpressCheckoutElement monte
+    // e onReady possa detectar se o Link está disponível.
+    // No mobile (iOS/Android), a tab sempre aparece baseada no OS — não precisamos
+    // pré-selecionar, o que elimina o flash em emuladores/dispositivos sem o método configurado.
+    if (!ios && !android) setPaymentMethod('link');
+  }, []);
+
+  useEffect(() => {
+    window.fbq?.('track', 'InitiateCheckout', {
+      currency: 'BRL',
+      value: selectedPlan.price,
+      content_ids: [priceId],
+      contents: [{ id: priceId, quantity: 1 }],
+      num_items: 1,
+    });
+  }, []);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -215,10 +243,12 @@ const PaymentForm = ({
       const email = formData.email.trim();
 
       try {
+        const successUrl = `/success?name=${encodeURIComponent(petName)}&email=${encodeURIComponent(email)}&plan_type=${encodeURIComponent(planId)}&subscription_id=${encodeURIComponent(subscriptionId)}`;
+
         const { error, paymentIntent } = await stripe.confirmPayment({
           elements,
           confirmParams: {
-            return_url: `${window.location.origin}/success?name=${encodeURIComponent(petName)}&email=${encodeURIComponent(email)}`,
+            return_url: `${window.location.origin}${successUrl}`,
             payment_method_data: {
               billing_details: {
                 email,
@@ -232,19 +262,28 @@ const PaymentForm = ({
           setErrorMessage(error.message ?? 'Ocorreu um erro desconhecido.');
           setIsProcessing(false);
         } else if (paymentIntent && paymentIntent.status === 'succeeded') {
-          await notifyRevenueCat(email);
-          window.location.href = `/success?name=${encodeURIComponent(petName)}&email=${encodeURIComponent(email)}`;
+          track(`${flow}_compra_concluida`, {
+            plano: PLAN_NAME_MAP[planId] ?? planId,
+            variante,
+            source: 'paywall',
+          });
+          window.fbq?.('track', 'Purchase', {
+            currency: 'BRL',
+            value: selectedPlan.price,
+            content_ids: [priceId],
+            contents: [{ id: priceId, quantity: 1 }],
+            num_items: 1,
+          });
+          window.location.href = successUrl;
         }
       } catch (e: any) {
         setErrorMessage(e.message || 'Erro no pagamento');
         setIsProcessing(false);
       }
-    } else {
-      console.log('Apple Pay selected');
     }
   };
 
-  const onApplePayConfirm = async () => {
+  const onExpressConfirm = async () => {
     if (!stripe || !elements) {
       return;
     }
@@ -252,7 +291,7 @@ const PaymentForm = ({
     setIsProcessing(true);
 
     const email = formData.email.trim() || userEmail;
-    const successUrl = `/success?name=${encodeURIComponent(petName)}&email=${encodeURIComponent(email)}`;
+    const successUrl = `/success?name=${encodeURIComponent(petName)}&email=${encodeURIComponent(email)}&plan_type=${encodeURIComponent(planId)}&subscription_id=${encodeURIComponent(subscriptionId)}`;
 
     const { error, paymentIntent } = await stripe.confirmPayment({
       elements,
@@ -266,7 +305,18 @@ const PaymentForm = ({
       setErrorMessage(error.message ?? 'Ocorreu um erro desconhecido.');
       setIsProcessing(false);
     } else if (paymentIntent && paymentIntent.status === 'succeeded') {
-      await notifyRevenueCat(email);
+      track(`${flow}_compra_concluida`, {
+        plano: PLAN_NAME_MAP[planId] ?? planId,
+        variante,
+        source: 'paywall',
+      });
+      window.fbq?.('track', 'Purchase', {
+        currency: 'BRL',
+        value: selectedPlan.price,
+        content_ids: [priceId],
+        contents: [{ id: priceId, quantity: 1 }],
+        num_items: 1,
+      });
       window.location.href = successUrl;
     }
   };
@@ -276,12 +326,14 @@ const PaymentForm = ({
        {/* Header */}
        <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-10">
           <div className="relative flex items-center justify-center max-w-lg mx-auto">
-             <button 
-                onClick={onBack}
-                className="absolute left-0 p-2 hover:bg-gray-50 rounded-full transition-colors"
-             >
-                <ChevronLeft className="w-6 h-6 text-gray-600" />
-             </button>
+             {onBack && (
+               <button 
+                  onClick={onBack}
+                  className="absolute left-0 p-2 hover:bg-gray-50 rounded-full transition-colors"
+               >
+                  <ChevronLeft className="w-6 h-6 text-gray-600" />
+               </button>
+             )}
              <Image 
                 src="/images/quiz/logo-quiz.png" 
                 alt="PetGuia" 
@@ -289,6 +341,14 @@ const PaymentForm = ({
                 height={80} 
                 className="h-[80px] w-auto object-contain"
              />
+             {onExit && (
+               <button
+                 onClick={onExit}
+                 className="absolute right-0 p-2 hover:bg-gray-50 rounded-full transition-colors"
+               >
+                 <X className="w-5 h-5 text-gray-600" />
+               </button>
+             )}
           </div>
        </div>
 
@@ -324,12 +384,13 @@ const PaymentForm = ({
                 
                 <form onSubmit={handleSubmit} className="flex flex-col gap-3">
                    
-                   {/* Option: Apple Pay */}
+                   {/* Option: Express Pay (Apple Pay / Google Pay / Link) — condicional ao SO e disponibilidade */}
+                   {(isIOS || isAndroid || expressAvailable !== false) && (
                    <div 
-                      onClick={() => setPaymentMethod('apple_pay')}
+                      onClick={() => setPaymentMethod(isIOS ? 'apple_pay' : isAndroid ? 'google_pay' : 'link')}
                       className={`
                         border-2 rounded-lg p-4 cursor-pointer transition-all
-                        ${paymentMethod === 'apple_pay' 
+                        ${(paymentMethod === 'apple_pay' || paymentMethod === 'google_pay' || paymentMethod === 'link')
                            ? 'border-[#16a34a] bg-white' 
                            : 'border-[#e5e7eb] bg-white'}
                       `}
@@ -338,49 +399,107 @@ const PaymentForm = ({
                          <div className="flex items-center gap-3">
                             <div className={`
                                w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0
-                               ${paymentMethod === 'apple_pay' 
+                               ${(paymentMethod === 'apple_pay' || paymentMethod === 'google_pay' || paymentMethod === 'link')
                                   ? 'border-[#16a34a] bg-[#16a34a]' 
                                   : 'border-gray-300 bg-white'}
                             `}>
-                               {paymentMethod === 'apple_pay' && <Check className="w-3 h-3 text-white" />}
+                               {(paymentMethod === 'apple_pay' || paymentMethod === 'google_pay' || paymentMethod === 'link') && <Check className="w-3 h-3 text-white" />}
                             </div>
                             <div className="flex items-center gap-2">
-                               <span className="font-bold text-[#111827]">Apple Pay</span>
+                               <span className="font-bold text-[#111827]">
+                                  {isIOS ? 'Apple Pay' : isAndroid ? 'Google Pay' : 'Pagamento Rápido'}
+                               </span>
                             </div>
                          </div>
-                         <FaApplePay className="h-10 w-auto text-[#111827]" />
+                         {isIOS
+                           ? <FaApplePay className="h-10 w-auto text-[#111827]" />
+                           : isAndroid
+                             ? <FaGooglePay className="h-10 w-auto text-[#111827]" />
+                             : null
+                         }
                       </div>
 
-                      {paymentMethod === 'apple_pay' && (
+                      {(paymentMethod === 'apple_pay' || paymentMethod === 'google_pay' || paymentMethod === 'link') && (
                          <div className="mt-4 pl-8 animate-in slide-in-from-top-2 fade-in duration-200">
                             <ul className="flex flex-col gap-2.5 mb-5">
-                               <li className="flex items-start gap-2.5 text-[13px] text-[#374151]">
-                                  <Check className="w-4 h-4 text-[#16a34a] flex-shrink-0 mt-0.5" />
-                                  <span>Pagamentos fáceis e privados com o Face/Touch ID</span>
-                               </li>
-                               <li className="flex items-start gap-2.5 text-[13px] text-[#374151]">
-                                  <Check className="w-4 h-4 text-[#16a34a] flex-shrink-0 mt-0.5" />
-                                  <span>Mantém suas informações financeiras seguras com criptografia de ponta a ponta</span>
-                               </li>
-                               <li className="flex items-start gap-2.5 text-[13px] text-[#374151]">
-                                  <Check className="w-4 h-4 text-[#16a34a] flex-shrink-0 mt-0.5" />
-                                  <span>Protegido pelo número de conta de dispositivo exclusivo do Apple Pay</span>
-                               </li>
+                               {isIOS ? (
+                                 <>
+                                   <li className="flex items-start gap-2.5 text-[13px] text-[#374151]">
+                                      <Check className="w-4 h-4 text-[#16a34a] flex-shrink-0 mt-0.5" />
+                                      <span>Pagamentos fáceis e privados com o Face/Touch ID</span>
+                                   </li>
+                                   <li className="flex items-start gap-2.5 text-[13px] text-[#374151]">
+                                      <Check className="w-4 h-4 text-[#16a34a] flex-shrink-0 mt-0.5" />
+                                      <span>Mantém suas informações financeiras seguras com criptografia de ponta a ponta</span>
+                                   </li>
+                                   <li className="flex items-start gap-2.5 text-[13px] text-[#374151]">
+                                      <Check className="w-4 h-4 text-[#16a34a] flex-shrink-0 mt-0.5" />
+                                      <span>Protegido pelo número de conta de dispositivo exclusivo do Apple Pay</span>
+                                   </li>
+                                 </>
+                               ) : isAndroid ? (
+                                 <>
+                                   <li className="flex items-start gap-2.5 text-[13px] text-[#374151]">
+                                      <Check className="w-4 h-4 text-[#16a34a] flex-shrink-0 mt-0.5" />
+                                      <span>Pagamentos rápidos e seguros com a sua conta Google</span>
+                                   </li>
+                                   <li className="flex items-start gap-2.5 text-[13px] text-[#374151]">
+                                      <Check className="w-4 h-4 text-[#16a34a] flex-shrink-0 mt-0.5" />
+                                      <span>Mantém suas informações financeiras seguras com criptografia de ponta a ponta</span>
+                                   </li>
+                                   <li className="flex items-start gap-2.5 text-[13px] text-[#374151]">
+                                      <Check className="w-4 h-4 text-[#16a34a] flex-shrink-0 mt-0.5" />
+                                      <span>Nenhuma informação financeira compartilhada com o comerciante</span>
+                                   </li>
+                                 </>
+                               ) : (
+                                 <>
+                                   <li className="flex items-start gap-2.5 text-[13px] text-[#374151]">
+                                      <Check className="w-4 h-4 text-[#16a34a] flex-shrink-0 mt-0.5" />
+                                      <span>Pague com um clique usando seus dados salvos no Stripe</span>
+                                   </li>
+                                   <li className="flex items-start gap-2.5 text-[13px] text-[#374151]">
+                                      <Check className="w-4 h-4 text-[#16a34a] flex-shrink-0 mt-0.5" />
+                                      <span>Informações de pagamento protegidas com criptografia de ponta a ponta</span>
+                                   </li>
+                                   <li className="flex items-start gap-2.5 text-[13px] text-[#374151]">
+                                      <Check className="w-4 h-4 text-[#16a34a] flex-shrink-0 mt-0.5" />
+                                      <span>Usado em milhões de compras ao redor do mundo</span>
+                                   </li>
+                                 </>
+                               )}
                             </ul>
 
                             <div className="w-full">
                                <ExpressCheckoutElement 
-                                  onConfirm={onApplePayConfirm}
+                                  onReady={(event) => {
+                                    const m = event.availablePaymentMethods;
+                                    const available = !!(
+                                      (isIOS && m?.applePay) ||
+                                      (isAndroid && m?.googlePay) ||
+                                      m?.link
+                                    );
+                                    setExpressAvailable(available);
+                                    if (!available) setPaymentMethod('card');
+                                  }}
+                                  onConfirm={onExpressConfirm}
                                   options={{
+                                     paymentMethods: {
+                                        applePay: isIOS ? 'auto' : 'never',
+                                        googlePay: isAndroid ? 'auto' : 'never',
+                                        link: 'auto',
+                                     },
                                      buttonTheme: {
                                         applePay: 'black',
+                                        googlePay: 'black',
                                      },
                                      buttonType: {
                                         applePay: 'buy',
+                                        googlePay: 'buy',
                                      },
                                      layout: {
                                         maxColumns: 1,
-                                        maxRows: 1
+                                        maxRows: 2
                                      }
                                   }}
                                />
@@ -388,6 +507,7 @@ const PaymentForm = ({
                          </div>
                       )}
                    </div>
+                   )}
 
                    {/* Option: Credit Card */}
                    <div 
@@ -503,6 +623,9 @@ const PaymentForm = ({
 
 function PayContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const { flow: quizFlow } = useQuizStore();
+  const flow = quizFlow ?? 'behavior';
   
   // Params
   const name = searchParams.get('name') || 'seu cão';
@@ -536,7 +659,9 @@ function PayContent() {
 
   // Effects
   useEffect(() => {
-    setVariante(getVariantePay());
+    const v = getVariantePay();
+    setVariante(v);
+    track(`${flow}_paywall_${v}`);
 
     // Generate coupon
     const today = new Date();
@@ -573,6 +698,12 @@ function PayContent() {
   };
 
   const handleStartPlan = async (email: string, overridePriceId?: string) => {
+    const activePlanId = variante === 'B' ? selectedWeeklyPlan : selectedPlan;
+    track(`${flow}_checkout_iniciado`, {
+      plano: PLAN_NAME_MAP[activePlanId] ?? activePlanId,
+      variante: variante ?? 'A',
+      source: 'paywall',
+    });
     setIsLoadingCheckout(true);
     setCheckoutError(null);
     try {
@@ -608,6 +739,15 @@ function PayContent() {
     setOpenFaq(openFaq === index ? null : index);
   };
 
+  const handleExitIntent = () => {
+    const params = new URLSearchParams();
+    if (problem) params.set('problem', problem);
+    if (name !== 'seu cão') params.set('name', name);
+    const emailToPass = checkoutEmail.trim() || emailFromUrl;
+    if (emailToPass) params.set('email', emailToPass);
+    router.push(`/exit?${params.toString()}`);
+  };
+
   // --- Render Views ---
 
   if (view === 'checkout' && clientSecret) {
@@ -634,15 +774,23 @@ function PayContent() {
        ? { id: 'monthly' as PlanType, name: weeklyPlan.name, price: weeklyPlan.price, originalPrice: weeklyPlan.originalPrice, monthlyEquivalent: weeklyPlan.perWeek }
        : PLANS.find(p => p.id === selectedPlan)!;
 
+     const activePriceId = variante === 'B'
+       ? STRIPE_PRICES_SEMANAL[selectedWeeklyPlan]
+       : STRIPE_PRICES[selectedPlan];
+
      return (
         <Elements stripe={stripePromise} options={{ clientSecret, appearance }}>
            <PaymentForm 
-              onBack={() => setView('paywall')} 
+              onExit={handleExitIntent}
               selectedPlan={planForForm}
               subscriptionId={subscriptionId}
               userEmail={checkoutEmail}
               petName={name}
               equivalentLabel={variante === 'B' ? '/semana' : '/mês'}
+              planId={variante === 'B' ? selectedWeeklyPlan : selectedPlan}
+              priceId={activePriceId}
+              variante={variante ?? 'A'}
+              flow={flow}
            />
         </Elements>
      );
@@ -653,9 +801,7 @@ function PayContent() {
     <div className="h-[100dvh] flex flex-col relative bg-white overflow-hidden">
       {/* 1. TopBar */}
       <header className="absolute top-0 left-0 right-0 h-16 bg-white border-b border-slate-900/10 z-50 flex items-center justify-between px-4">
-        <Link href="/quiz" className="w-11 h-11 flex items-center justify-center bg-gray-900/5 rounded-full hover:bg-gray-900/10 transition-colors">
-          <ChevronLeft className="w-6 h-6 text-gray-700" />
-        </Link>
+        <div className="w-11" />
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
           <Image 
             src="/images/quiz/logo-quiz.png" 
@@ -665,7 +811,13 @@ function PayContent() {
             className="h-[80px] w-auto object-contain"
           />
         </div>
-        <div className="w-11" /> {/* Spacer for alignment */}
+        <button
+          onClick={handleExitIntent}
+          className="w-11 h-11 flex items-center justify-center bg-gray-900/5 rounded-full hover:bg-gray-900/10 transition-colors"
+          aria-label="Fechar"
+        >
+          <X className="w-5 h-5 text-gray-700" />
+        </button>
       </header>
 
       {/* Scrollable Content Area */}
@@ -858,7 +1010,13 @@ function PayContent() {
                     </div>
                   )}
                   <div
-                    onClick={() => setSelectedWeeklyPlan(plan.id)}
+                    onClick={() => {
+                      setSelectedWeeklyPlan(plan.id);
+                      track(`${flow}_plano_selecionado`, {
+                        plano: PLAN_NAME_MAP[plan.id] ?? plan.id,
+                        variante: variante ?? 'B',
+                      });
+                    }}
                     className={`
                       relative rounded-xl px-4 py-2 border-2 transition-all cursor-pointer
                       ${selectedWeeklyPlan === plan.id
@@ -908,7 +1066,13 @@ function PayContent() {
               PLANS.map((plan) => (
                 <div 
                   key={plan.id}
-                  onClick={() => setSelectedPlan(plan.id)}
+                  onClick={() => {
+                    setSelectedPlan(plan.id);
+                    track(`${flow}_plano_selecionado`, {
+                      plano: PLAN_NAME_MAP[plan.id] ?? plan.id,
+                      variante: variante ?? 'A',
+                    });
+                  }}
                   className={`
                     relative rounded-xl p-5 border-2 transition-all cursor-pointer flex flex-col gap-3
                     ${selectedPlan === plan.id 

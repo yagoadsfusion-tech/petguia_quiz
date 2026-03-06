@@ -73,9 +73,11 @@ export const quizData = {
       "step": 5,
       "flow": "all",
       "title": "Quantos anos tem o seu cão?",
+      "title_puppy": "Qual é a idade do seu cão?",
       "subtitle_behavior_commands": "A idade influencia no ritmo e no nível dos exercícios.",
       "subtitle_puppy_general": "A idade influencia no ritmo e no tipo de aprendizado.",
-      "options": ["0–6 meses", "7–12 meses", "1–2 anos", "2–7 anos", "Mais de 7 anos"]
+      "options": ["0–6 meses", "7–12 meses", "1–2 anos", "2–7 anos", "Mais de 7 anos"],
+      "options_puppy": ["0 a 3 meses (desenvolvimento)", "3 a 6 meses (crescimento)", "6 a 24 meses (adolescência)"]
     },
     "breed": {
       "step": 6,

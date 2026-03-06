@@ -194,12 +194,15 @@ export const ProblemCarousel = () => {
           <div
             style={{
               opacity: barExiting ? 0 : 1,
-              maxHeight: barExiting ? 0 : 48,
+              maxHeight: barExiting ? 0 : 80,
               overflow: 'hidden',
               transition: `opacity ${BAR_EXIT_DURATION}ms ease-in-out, max-height ${BAR_EXIT_DURATION}ms ease-in-out`,
             }}
           >
-            <div className="h-2 rounded-full bg-[#ececec] overflow-hidden mb-1">
+            <p className="text-[11px] font-bold text-center text-[#11181C] mb-2">
+              Por favor, não feche essa página
+            </p>
+            <div className="h-2 rounded-full bg-[#ececec] overflow-hidden">
               <div
                 className="h-full rounded-full"
                 style={{
@@ -209,6 +212,9 @@ export const ProblemCarousel = () => {
                 }}
               />
             </div>
+            <p className="text-[9px] text-center text-[#78787b] mt-2">
+              Personalizando o diagnóstico do seu cão
+            </p>
           </div>
         )}
 

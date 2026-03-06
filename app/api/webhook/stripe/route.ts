@@ -4,17 +4,17 @@ import Stripe from 'stripe';
 const REVENUECAT_API_URL = 'https://api.revenuecat.com/v1/receipts';
 
 const TRACKED_EVENTS = new Set([
-  'customer.subscription.created',
   'customer.subscription.updated',
   'customer.subscription.deleted',
   'invoice.payment_succeeded',
+  'invoice.payment_failed',
 ]);
 
 async function notifyRevenueCat(appUserId: string, fetchToken: string) {
   const res = await fetch(REVENUECAT_API_URL, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.NEXT_PUBLIC_REVENUECAT_API_KEY}`,
+      Authorization: `Bearer ${process.env.REVENUECAT_API_KEY}`,
       'Content-Type': 'application/json',
       'X-Platform': 'stripe',
     },
@@ -66,7 +66,6 @@ export async function POST(req: Request) {
     let customerId: string | undefined;
 
     if (
-      event.type === 'customer.subscription.created' ||
       event.type === 'customer.subscription.updated' ||
       event.type === 'customer.subscription.deleted'
     ) {

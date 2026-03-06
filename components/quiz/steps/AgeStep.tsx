@@ -4,8 +4,10 @@ import { StepWrapper } from '../StepWrapper';
 
 export const AgeStep = () => {
   const { setDogAge, nextStep, prevStep, flow } = useQuizStore();
-  const { title, subtitle_behavior_commands, subtitle_puppy_general, options } = quizData.shared.age;
+  const { title, title_puppy, subtitle_behavior_commands, subtitle_puppy_general, options, options_puppy } = quizData.shared.age;
   
+  const stepTitle = flow === 'puppy' ? title_puppy : title;
+  const stepOptions = flow === 'puppy' ? options_puppy : options;
   const subtitle = (flow === 'behavior' || flow === 'commands') 
     ? subtitle_behavior_commands 
     : subtitle_puppy_general;
@@ -18,9 +20,9 @@ export const AgeStep = () => {
   };
 
   return (
-    <StepWrapper title={title} subtitle={subtitle} showContinueButton={false} onBack={prevStep}>
+    <StepWrapper title={stepTitle} subtitle={subtitle} showContinueButton={false} onBack={prevStep}>
       <div className="flex flex-col gap-3">
-        {options.map((option) => (
+        {stepOptions.map((option) => (
           <button
             key={option}
             onClick={() => handleSelect(option)}

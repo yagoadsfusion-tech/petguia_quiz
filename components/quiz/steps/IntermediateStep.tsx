@@ -18,7 +18,7 @@ export const IntermediateStep = () => {
   useEffect(() => {
     const timer = setTimeout(() => {
       nextStep();
-    }, 10000); // 10s
+    }, 5000); // mesmo tempo da animação do progresso (dash 5s)
     return () => clearTimeout(timer);
   }, [nextStep]);
 
@@ -74,7 +74,7 @@ export const IntermediateStep = () => {
                strokeWidth="4"
                strokeDasharray="1000" 
                strokeDashoffset="1000"
-               style={{ animation: 'dash 10s linear forwards' }}
+               style={{ animation: 'dash 5s linear forwards' }}
                strokeLinecap="round"
              />
            </svg>
