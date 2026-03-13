@@ -3,6 +3,11 @@
 declare global {
   interface Window {
     fbq: (...args: unknown[]) => void;
+    ttq: {
+      track: (event: string, data?: object, options?: object) => void;
+      identify: (data: object) => void;
+      page: () => void;
+    };
   }
 }
 
@@ -13,8 +18,7 @@ import { ChevronLeft, Check, Users, Shield, Loader2, ChevronDown, ChevronUp, Loc
 import { FaApplePay, FaGooglePay } from 'react-icons/fa';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements, ExpressCheckoutElement } from '@stripe/react-stripe-js';
-import { STRIPE_PRICES, STRIPE_PRICES_SEMANAL } from '@/constants/stripePrices';
-import { getVariantePay } from '@/lib/abTest';
+import { STRIPE_PRICES_SEMANAL } from '@/constants/stripePrices';
 import { track } from '@/lib/mixpanelClient';
 import { useQuizStore } from '@/store/quizStore';
 
@@ -32,7 +36,7 @@ const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
 
 // --- Types ---
 
-type PlanType = 'annual' | 'semiannual' | 'monthly';
+type PlanType = 'monthly';
 
 interface Plan {
   id: PlanType;
@@ -40,33 +44,7 @@ interface Plan {
   price: number;
   originalPrice: number;
   monthlyEquivalent: number;
-  bestValue?: boolean;
 }
-
-const PLANS: Plan[] = [
-  {
-    id: 'annual',
-    name: 'Anual',
-    price: 149.90,
-    originalPrice: 349.90,
-    monthlyEquivalent: 12.49,
-    bestValue: true,
-  },
-  {
-    id: 'semiannual',
-    name: 'Semestral',
-    price: 129.90,
-    originalPrice: 249.90,
-    monthlyEquivalent: 21.65,
-  },
-  {
-    id: 'monthly',
-    name: 'Mensal',
-    price: 99.90,
-    originalPrice: 199.90,
-    monthlyEquivalent: 99.90,
-  },
-];
 
 type WeeklyPlanType = keyof typeof STRIPE_PRICES_SEMANAL;
 
@@ -81,9 +59,9 @@ interface WeeklyPlan {
 }
 
 const WEEKLY_PLANS: WeeklyPlan[] = [
-  { id: 'week1',  name: 'Plano de 7 dias',     price: 49.90,  originalPrice: 69.90,  perDay: null, perWeek: 49.90, popular: false },
-  { id: 'week4',  name: 'Plano de 4 semanas',   price: 79.90,  originalPrice: 129.90, perDay: 2.85, perWeek: 19.98, popular: false },
-  { id: 'week12', name: 'Plano de 12 semanas',  price: 99.90,  originalPrice: 199.90, perDay: 1.19, perWeek: 8.33,  popular: true  },
+  { id: 'week1',  name: 'Plano de 7 dias',     price: 19.90, originalPrice: 69.90,  perDay: null, perWeek: 19.90, popular: false },
+  { id: 'week4',  name: 'Plano de 4 semanas',   price: 29.90, originalPrice: 129.90, perDay: 0.99, perWeek: 7.48, popular: true  },
+  { id: 'week12', name: 'Plano de 12 semanas',  price: 69.90, originalPrice: 199.90, perDay: 0.83, perWeek: 5.83, popular: false },
 ];
 
 const TESTIMONIALS = [
@@ -165,6 +143,13 @@ const subtitleMap: Record<string, string> = {
 const fallbackTitle = 'O programa de treino do seu cachorro começa agora!'
 const fallbackSubtitle = `O PetGuia vai ajudar a resolver problemas de comportamento do {name} de forma rápida!`
 
+// Dados de renovação por plano introdutório
+const PLAN_RENEWAL_INFO: Record<string, { days: number; renewalPrice: number; periodLabel: string }> = {
+  week1:  { days: 7,  renewalPrice: 49.90,  periodLabel: 'a cada 2 semanas' },
+  week4:  { days: 28, renewalPrice: 99.90,  periodLabel: 'mensalmente' },
+  week12: { days: 84, renewalPrice: 149.90, periodLabel: 'a cada 3 meses' },
+};
+
 // --- Checkout Components ---
 
 const PaymentForm = ({ 
@@ -222,6 +207,11 @@ const PaymentForm = ({
       contents: [{ id: priceId, quantity: 1 }],
       num_items: 1,
     });
+    window.ttq?.track('InitiateCheckout', {
+      contents: [{ content_id: priceId, content_type: 'product', content_name: selectedPlan.name }],
+      value: selectedPlan.price,
+      currency: 'BRL',
+    }, { event_id: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}` });
   }, []);
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -274,6 +264,11 @@ const PaymentForm = ({
             contents: [{ id: priceId, quantity: 1 }],
             num_items: 1,
           });
+          window.ttq?.track('Purchase', {
+            contents: [{ content_id: priceId, content_type: 'product', content_name: selectedPlan.name }],
+            value: selectedPlan.price,
+            currency: 'BRL',
+          }, { event_id: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}` });
           window.location.href = successUrl;
         }
       } catch (e: any) {
@@ -317,9 +312,21 @@ const PaymentForm = ({
         contents: [{ id: priceId, quantity: 1 }],
         num_items: 1,
       });
+      window.ttq?.track('Purchase', {
+        contents: [{ content_id: priceId, content_type: 'product', content_name: selectedPlan.name }],
+        value: selectedPlan.price,
+        currency: 'BRL',
+      }, { event_id: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}` });
       window.location.href = successUrl;
     }
   };
+
+  const renewalInfo = PLAN_RENEWAL_INFO[planId] ?? null;
+  const introEndDate = renewalInfo ? (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + renewalInfo.days);
+    return d.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
+  })() : null;
 
   return (
     <div className="min-h-screen bg-[#f9fafb] flex flex-col">
@@ -587,32 +594,57 @@ const PaymentForm = ({
                 </div>
              </div>
 
-             {/* Bullets */}
-             <div className="mt-6 flex flex-col gap-3 px-2">
-                <div className="flex items-start gap-3">
-                   <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Check className="w-3 h-3 text-[#16a34a]" />
+             {/* Disclaimer de renovação */}
+             <div className="mt-6 px-2">
+               {renewalInfo && introEndDate ? (
+                 <ul className="flex flex-col gap-2 text-xs text-gray-500 leading-relaxed list-disc pl-4">
+                   <li>
+                     Ao continuar, você autoriza a renovação automática da sua assinatura e concorda com nossos Termos e Condições e Política de Privacidade.
+                   </li>
+                   <li>
+                     Hoje será cobrado apenas {selectedPlan.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} (período introdutório de {renewalInfo.days} dias).
+                   </li>
+                   <li>
+                     O período introdutório termina em {introEndDate}.
+                   </li>
+                   <li>
+                     Você pode cancelar a qualquer momento antes de {introEndDate} sem nenhuma cobrança adicional.
+                   </li>
+                   <li>
+                     Se não cancelar, o PetGuia renovará automaticamente sua assinatura pelo valor de {renewalInfo.renewalPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}, {renewalInfo.periodLabel}, até que você cancele.
+                   </li>
+                   <li>
+                     Não oferecemos reembolsos ou créditos para períodos parciais de assinatura.
+                   </li>
+                 </ul>
+               ) : (
+                 <div className="flex flex-col gap-3">
+                   <div className="flex items-start gap-3">
+                     <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                       <Check className="w-3 h-3 text-[#16a34a]" />
+                     </div>
+                     <p className="text-sm text-gray-600 leading-snug">
+                       Ao continuar, autoriza a renovação automática da sua assinatura
+                     </p>
                    </div>
-                   <p className="text-sm text-gray-600 leading-snug">
-                      Ao continuar, autoriza a renovação automática da sua assinatura
-                   </p>
-                </div>
-                <div className="flex items-start gap-3">
-                   <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Check className="w-3 h-3 text-[#16a34a]" />
+                   <div className="flex items-start gap-3">
+                     <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                       <Check className="w-3 h-3 text-[#16a34a]" />
+                     </div>
+                     <p className="text-sm text-gray-600 leading-snug">
+                       Cancele quando quiser nas configurações da sua conta
+                     </p>
                    </div>
-                   <p className="text-sm text-gray-600 leading-snug">
-                      Cancele quando quiser nas configurações da sua conta
-                   </p>
-                </div>
-                <div className="flex items-start gap-3">
-                   <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Check className="w-3 h-3 text-[#16a34a]" />
+                   <div className="flex items-start gap-3">
+                     <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                       <Check className="w-3 h-3 text-[#16a34a]" />
+                     </div>
+                     <p className="text-sm text-gray-600 leading-snug">
+                       Garantia de 30 dias: se não ficar satisfeito, devolvemos 100% do seu dinheiro
+                     </p>
                    </div>
-                   <p className="text-sm text-gray-600 leading-snug">
-                      Garantia de 30 dias: se não ficar satisfeito, devolvemos 100% do seu dinheiro
-                   </p>
-                </div>
+                 </div>
+               )}
              </div>
 
           </div>
@@ -639,7 +671,6 @@ function PayContent() {
   // State
   const [activeUsers, setActiveUsers] = useState(0);
   const [timeLeft, setTimeLeft] = useState(600); // 10 minutes in seconds
-  const [selectedPlan, setSelectedPlan] = useState<PlanType>('annual');
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [couponCode, setCouponCode] = useState('');
   
@@ -653,15 +684,31 @@ function PayContent() {
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const hasEmailFromUrl = emailFromUrl.includes('@');
 
-  // A/B test — inicializado client-side para evitar erros de SSR
-  const [variante, setVariante] = useState<'A' | 'B' | null>(null);
+  const variante = 'B' as const;
   const [selectedWeeklyPlan, setSelectedWeeklyPlan] = useState<WeeklyPlanType>('week4');
+
+  // Intercepta o botão voltar e redireciona para /exit preservando os params
+  useEffect(() => {
+    window.history.pushState(null, '', window.location.href);
+    const handlePopState = () => {
+      const current = new URLSearchParams(window.location.search);
+      const params = new URLSearchParams();
+      const n = current.get('name');
+      const p = current.get('problem');
+      const e = current.get('email');
+      if (n && n !== 'seu cão') params.set('name', n);
+      if (p) params.set('problem', p);
+      if (e) params.set('email', e);
+      router.replace(`/exit?${params.toString()}`);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Effects
   useEffect(() => {
-    const v = getVariantePay();
-    setVariante(v);
-    track(`${flow}_paywall_${v}`);
+    track(`${flow}_paywall_B`);
 
     // Generate coupon
     const today = new Date();
@@ -698,7 +745,7 @@ function PayContent() {
   };
 
   const handleStartPlan = async (email: string, overridePriceId?: string) => {
-    const activePlanId = variante === 'B' ? selectedWeeklyPlan : selectedPlan;
+    const activePlanId = selectedWeeklyPlan;
     track(`${flow}_checkout_iniciado`, {
       plano: PLAN_NAME_MAP[activePlanId] ?? activePlanId,
       variante: variante ?? 'A',
@@ -707,7 +754,7 @@ function PayContent() {
     setIsLoadingCheckout(true);
     setCheckoutError(null);
     try {
-       const priceId = overridePriceId ?? STRIPE_PRICES[selectedPlan];
+       const priceId = overridePriceId ?? STRIPE_PRICES_SEMANAL[selectedWeeklyPlan];
        
        const res = await fetch('/api/create-subscription', {
           method: 'POST',
@@ -770,13 +817,9 @@ function PayContent() {
      };
 
      const weeklyPlan = WEEKLY_PLANS.find(p => p.id === selectedWeeklyPlan)!;
-     const planForForm: Plan = variante === 'B'
-       ? { id: 'monthly' as PlanType, name: weeklyPlan.name, price: weeklyPlan.price, originalPrice: weeklyPlan.originalPrice, monthlyEquivalent: weeklyPlan.perWeek }
-       : PLANS.find(p => p.id === selectedPlan)!;
+     const planForForm: Plan = { id: 'monthly' as PlanType, name: weeklyPlan.name, price: weeklyPlan.price, originalPrice: weeklyPlan.originalPrice, monthlyEquivalent: weeklyPlan.perWeek };
 
-     const activePriceId = variante === 'B'
-       ? STRIPE_PRICES_SEMANAL[selectedWeeklyPlan]
-       : STRIPE_PRICES[selectedPlan];
+     const activePriceId = STRIPE_PRICES_SEMANAL[selectedWeeklyPlan];
 
      return (
         <Elements stripe={stripePromise} options={{ clientSecret, appearance }}>
@@ -786,8 +829,8 @@ function PayContent() {
               subscriptionId={subscriptionId}
               userEmail={checkoutEmail}
               petName={name}
-              equivalentLabel={variante === 'B' ? '/semana' : '/mês'}
-              planId={variante === 'B' ? selectedWeeklyPlan : selectedPlan}
+              equivalentLabel='/semana'
+              planId={selectedWeeklyPlan}
               priceId={activePriceId}
               variante={variante ?? 'A'}
               flow={flow}
@@ -1000,9 +1043,8 @@ function PayContent() {
           </div>
 
           <div className="flex flex-col gap-4">
-            {/* List of Plans — Variante A: anual/semestral/mensal | Variante B: semanal */}
-            {variante === 'B' ? (
-              WEEKLY_PLANS.map((plan) => (
+            {/* List of Plans */}
+            {WEEKLY_PLANS.map((plan) => (
                 <div key={plan.id} className={`relative ${plan.popular ? 'mt-2' : ''}`}>
                   {plan.popular && (
                     <div className="absolute -top-[11px] left-1/2 -translate-x-1/2 z-10 bg-blue-500 text-white text-[10px] font-bold px-3 py-[3px] rounded-full whitespace-nowrap">
@@ -1062,91 +1104,7 @@ function PayContent() {
                   </div>
                 </div>
               ))
-            ) : (
-              PLANS.map((plan) => (
-                <div 
-                  key={plan.id}
-                  onClick={() => {
-                    setSelectedPlan(plan.id);
-                    track(`${flow}_plano_selecionado`, {
-                      plano: PLAN_NAME_MAP[plan.id] ?? plan.id,
-                      variante: variante ?? 'A',
-                    });
-                  }}
-                  className={`
-                    relative rounded-xl p-5 border-2 transition-all cursor-pointer flex flex-col gap-3
-                    ${selectedPlan === plan.id 
-                      ? 'border-blue-500 bg-blue-50/50' 
-                      : 'border-blue-200 bg-white hover:border-blue-300'}
-                  `}
-                >
-                  {plan.bestValue && plan.id === 'annual' && (
-                    <div className="absolute top-0 left-0 bg-blue-500 text-white text-[10px] font-bold px-3 py-1 rounded-br-lg rounded-tl-lg">
-                      MAIS POPULAR
-                    </div>
-                  )}
-
-                  <div className="flex items-start justify-between pt-2">
-                    <div className="flex items-center gap-3">
-                      <div className={`
-                        w-5 h-5 rounded-full border flex items-center justify-center
-                        ${selectedPlan === plan.id ? 'border-blue-500 bg-blue-500' : 'border-gray-400 bg-white'}
-                      `}>
-                        {selectedPlan === plan.id && <div className="w-2 h-2 rounded-full bg-white" />}
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-gray-900">{plan.name}</h3>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-gray-400 line-through decoration-red-500/50">
-                            {formatCurrency(plan.originalPrice)}
-                          </span>
-                          <span className="text-sm font-bold text-blue-600">
-                            {formatCurrency(plan.price)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="flex flex-col items-end">
-                      <span className="text-xl font-bold text-blue-600">
-                        {formatCurrency(plan.monthlyEquivalent)}
-                      </span>
-                      <span className="text-[10px] text-gray-500 uppercase font-medium">
-                        /mês
-                      </span>
-                    </div>
-                  </div>
-
-                  {plan.id === 'annual' && selectedPlan === 'annual' && (
-                    <div className="mt-2 pt-3 border-t border-blue-100 flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
-                      <div className="bg-blue-100/50 border border-blue-200 rounded-lg p-3">
-                        <p className="text-sm font-bold text-blue-800 flex items-center gap-2">
-                          <span>🎁</span> Bônus exclusivo só hoje: Pacote VIP do Pet
-                        </p>
-                      </div>
-                      
-                      <ul className="flex flex-col gap-2">
-                        {[
-                          "Mais de 70 protocolos de treino",
-                          "Comandos básicos e avançados",
-                          "Jogos práticos para o dia a dia",
-                          "Carteira digital do pet"
-                        ].map((feature, idx) => (
-                          <li key={idx} className="flex items-start gap-2 text-sm text-gray-600">
-                            <Check className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                            <span>{feature}</span>
-                          </li>
-                        ))}
-                      </ul>
-                      
-                      <p className="text-xs text-center text-gray-500 mt-1">
-                        Cancele quando quiser nas configurações da conta
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
+            }
 
             {/* CTA Button */}
             <div className="flex flex-col items-center gap-3 mt-2">
@@ -1169,11 +1127,7 @@ function PayContent() {
                       return;
                     }
                     setCheckoutError(null);
-                    if (variante === 'B') {
-                      handleStartPlan(email, STRIPE_PRICES_SEMANAL[selectedWeeklyPlan]);
-                    } else {
-                      handleStartPlan(email);
-                    }
+                    handleStartPlan(email, STRIPE_PRICES_SEMANAL[selectedWeeklyPlan]);
                   }}
                   disabled={isLoadingCheckout}
                   className="w-full h-[60px] bg-blue-600 hover:bg-blue-700 active:scale-[0.98] transition-all rounded-full text-white font-bold text-[18px] flex items-center justify-center shadow-[0_4px_12px_rgba(59,130,246,0.4)] disabled:opacity-80 disabled:cursor-not-allowed"

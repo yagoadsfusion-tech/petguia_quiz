@@ -23,6 +23,7 @@ import { TimeStep } from './steps/TimeStep';
 import { PreparationStep } from './steps/PreparationStep';
 import { ResultStep } from './steps/ResultStep';
 import { PaywallScreen } from './steps/PaywallScreen';
+import { GiftScreen } from './steps/GiftScreen';
 import { BlockageStep } from './steps/BlockageStep';
 import { BehaviorCommandsStep } from './steps/BehaviorCommandsStep';
 import { PuppyGoalStep } from './steps/PuppyGoalStep';
@@ -95,6 +96,7 @@ const stepComponents: Record<string, React.ComponentType> = {
   time: TimeStep,
   preparation: PreparationStep,
   result: ResultStep,
+  gift: GiftScreen,
   paywall: PaywallScreen,
   
   // Behavior
@@ -142,28 +144,28 @@ export const QuizContainer = () => {
     'carousel', 'intention', 'gender', 'name', 'age', 'breed', 'social_proof', 
     'health', 'activity', 'commands', 'identification_commands', 'intermediate', 
     'problems', 'identification_problem', 'context', 'impact', 'specific_situation_1', 
-    'path_ab_1', 'progress_1', 'time', 'preparation', 'result', 'paywall'
+    'path_ab_1', 'progress_1', 'time', 'preparation', 'result', 'gift', 'paywall'
   ];
 
   const commandsSteps = [
     'carousel', 'intention', 'gender', 'name', 'age', 'breed', 'social_proof', 
     'health', 'activity', 'intermediate', 'commands', 'blockage', 'behavior_commands', 
     'identification_light', 'specific_situation_2', 'path_ab_2', 'progress_2', 
-    'time', 'preparation', 'result', 'paywall'
+    'time', 'preparation', 'result', 'gift', 'paywall'
   ];
 
   const puppySteps = [
     'carousel', 'intention', 'gender', 'name', 'age', 'breed', 'social_proof', 
     'health', 'activity', 'intermediate', 'puppy_goal', 'prevention', 'daily_challenge', 
     'identification_puppy', 'specific_situation_3', 'path_ab_3', 'progress_3', 
-    'time', 'preparation', 'result', 'paywall'
+    'time', 'preparation', 'result', 'gift', 'paywall'
   ];
 
   const generalSteps = [
     'carousel', 'intention', 'gender', 'name', 'age', 'breed', 'social_proof', 
     'health', 'activity', 'intermediate', 'exploratory', 'focus', 'identification_general', 
-    'specific_situation_4', 'path_ab_4', 'progress_4', 'time', 'preparation', 
-    'result', 'paywall'
+    'specific_situation_4', 'path_ab_4', 'progress_4',     'time', 'preparation', 
+    'result', 'gift', 'paywall'
   ];
 
   let currentFlowSteps = behaviorSteps;
@@ -181,7 +183,12 @@ export const QuizContainer = () => {
     if (!isClient || stepId === 'paywall' || !flow) return;
     const eventName = STEP_EVENT_NAMES[stepId];
     if (!eventName) return;
-    track(`${flow}_${eventName}`);
+
+    if (['carousel', 'intention'].includes(stepId)) {
+      track(`quiz_${eventName}`);
+    } else {
+      track(`${flow}_${eventName}`);
+    }
   }, [isClient, stepId, flow]);
 
   if (!isClient) return null;
@@ -190,7 +197,7 @@ export const QuizContainer = () => {
   
   // Hide progress bar on interstitials and special screens
   const hiddenProgressBarSteps = [
-    'carousel', 'result', 'paywall', 'preparation', 'social_proof', 
+    'carousel', 'result', 'gift', 'paywall', 'preparation', 'social_proof', 
     'intermediate', 'progress_1', 'progress_2', 'progress_3', 'progress_4'
   ];
   

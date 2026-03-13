@@ -3,6 +3,11 @@
 declare global {
   interface Window {
     fbq: (...args: unknown[]) => void;
+    ttq: {
+      track: (event: string, data?: object, options?: object) => void;
+      identify: (data: object) => void;
+      page: () => void;
+    };
   }
 }
 
@@ -25,11 +30,11 @@ const OFFER_PLAN_NAME_MAP: Record<string, string> = {
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
-// PRODUÇÃO:
+// PRODUÇÃO (preços introdutórios — usam Subscription Schedules):
 const OFFER_PRICE_IDS = {
-  week1:  'price_1T7ys66oqWcsG0cdnODbhaHM',
-  week4:  'price_1T7ysi6oqWcsG0cdSAKOqZc2',
-  week12: 'price_1T7ytG6oqWcsG0cdipvSkiBE',
+  week1:  'price_1TAbDP6oqWcsG0cd8GdA1SDg', // 7 dias  → renova em quinzenal
+  week4:  'price_1TAbEO6oqWcsG0cdW8u6CRSg', // 28 dias → renova em mensal
+  week12: 'price_1TAcQZ6oqWcsG0cdENFYCbaD', // 84 dias → renova em trimestral
 } as const;
 
 // TESTE:
@@ -52,9 +57,9 @@ interface WeeklyPlan {
 }
 
 const WEEKLY_PLANS: WeeklyPlan[] = [
-  { id: 'week1',  name: 'Plano de 7 dias',    price: 29.90, originalPrice: 69.90,  perDay: 4.27, perWeek: 29.90, popular: false },
-  { id: 'week4',  name: 'Plano de 4 semanas', price: 39.90, originalPrice: 129.90, perDay: 1.43, perWeek: 9.98,  popular: false },
-  { id: 'week12', name: 'Plano de 12 semanas',price: 59.90, originalPrice: 199.90, perDay: 0.71, perWeek: 4.99,  popular: true  },
+  { id: 'week1',  name: 'Plano de 7 dias',    price: 9.90,  originalPrice: 69.90,  perDay: 1.41, perWeek: 9.90, popular: false },
+  { id: 'week4',  name: 'Plano de 4 semanas', price: 19.90, originalPrice: 129.90, perDay: 0.71, perWeek: 4.98, popular: true  },
+  { id: 'week12', name: 'Plano de 12 semanas',price: 49.90, originalPrice: 199.90, perDay: 0.59, perWeek: 4.16, popular: false },
 ];
 
 interface PlanForForm {
@@ -111,6 +116,11 @@ const PaymentForm = ({
       contents: [{ id: priceId, quantity: 1 }],
       num_items: 1,
     });
+    window.ttq?.track('InitiateCheckout', {
+      contents: [{ content_id: priceId, content_type: 'product', content_name: selectedPlan.name }],
+      value: selectedPlan.price,
+      currency: 'BRL',
+    }, { event_id: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}` });
   }, []);
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -155,6 +165,11 @@ const PaymentForm = ({
             contents: [{ id: priceId, quantity: 1 }],
             num_items: 1,
           });
+          window.ttq?.track('Purchase', {
+            contents: [{ content_id: priceId, content_type: 'product', content_name: selectedPlan.name }],
+            value: selectedPlan.price,
+            currency: 'BRL',
+          }, { event_id: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}` });
           window.location.href = successUrl;
         }
       } catch (e: any) {
@@ -193,6 +208,11 @@ const PaymentForm = ({
         contents: [{ id: priceId, quantity: 1 }],
         num_items: 1,
       });
+      window.ttq?.track('Purchase', {
+        contents: [{ content_id: priceId, content_type: 'product', content_name: selectedPlan.name }],
+        value: selectedPlan.price,
+        currency: 'BRL',
+      }, { event_id: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}` });
       window.location.href = successUrl;
     }
   };
@@ -462,7 +482,7 @@ function OfferContent() {
   const emailFromUrl = searchParams.get('email') || '';
 
   const [timeLeft, setTimeLeft] = useState(300); // 5 minutos
-  const [selectedPlan, setSelectedPlan] = useState<WeeklyPlanType>('week12');
+  const [selectedPlan, setSelectedPlan] = useState<WeeklyPlanType>('week4');
   const [view, setView] = useState<'paywall' | 'checkout'>('paywall');
   const [isLoadingCheckout, setIsLoadingCheckout] = useState(false);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
@@ -470,6 +490,25 @@ function OfferContent() {
   const [checkoutEmail, setCheckoutEmail] = useState(emailFromUrl);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const hasEmailFromUrl = emailFromUrl.includes('@');
+
+  // Intercepta o botão voltar e redireciona para /exit preservando os params
+  useEffect(() => {
+    window.history.pushState(null, '', window.location.href);
+    const handlePopState = () => {
+      const current = new URLSearchParams(window.location.search);
+      const params = new URLSearchParams();
+      const n = current.get('name');
+      const p = current.get('problem');
+      const e = current.get('email');
+      if (n && n !== 'seu cão') params.set('name', n);
+      if (p) params.set('problem', p);
+      if (e) params.set('email', e);
+      router.replace(`/exit?${params.toString()}`);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     track(`${flow}_oferta_visualizada`, { paywall_origem: getVariantePay() });

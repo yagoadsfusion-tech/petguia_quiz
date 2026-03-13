@@ -2,11 +2,9 @@ import { useState } from 'react';
 import { useQuizStore } from '@/store/quizStore';
 import Image from 'next/image';
 import { getResultBreedImage } from '@/lib/imageHelpers';
-import { useRouter } from 'next/navigation';
 import { ChevronRight, GraduationCap, AlertTriangle, Calendar, Clock, Target, Shield, Search } from 'lucide-react';
 
 export const ResultStep = () => {
-  const router = useRouter();
   const { 
     nextStep, dogName, dogBreed, dogAge, commands, priorityProblem, trainingTime,
     flow, puppyGoal, focus, prevention, referralCode, setReferralCode, email,
@@ -30,14 +28,7 @@ export const ResultStep = () => {
   };
 
   const handleUnlock = () => {
-    const params = new URLSearchParams();
-    if (dogName) params.set('name', dogName);
-    if (dogBreed) params.set('breed', dogBreed);
-    if (priorityProblem) params.set('problem', priorityProblem);
-    if (trainingTime) params.set('time', trainingTime);
-    if (email) params.set('email', email);
-    
-    router.push(`/pay?${params.toString()}`);
+    nextStep();
   };
 
   const renderDynamicFields = () => {
